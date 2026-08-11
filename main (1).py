@@ -26,9 +26,10 @@ DIR_DOWN = -1
 
 
 class Shot(MDWidget):
-    def __init__(self, direction, **kwargs):
+    def __init__(self, direction, owner, **kwargs):
         super().__init__(**kwargs)
         self.direction = direction
+        self.owner = owner
 
 
 class Ship(Image):
@@ -100,33 +101,83 @@ class GameScreen(MDScreen):
 
     def on_enter(self, *args):
         self.updateEvent = Clock.schedule_interval(self.update, 1 / FPS)
-
-        ship = EnemyShip()
-        ship.pos = (randint(0, int(Window.size[0] - ship.size[0])), Window.size[1])
-        self.enemyShips.append(ship)
-        self.ids.front.add_widget(ship)
-
+        # головний корабель
+        self.ship = self.ids.ship
+        
         return super().on_enter(*args)
 
+    def spawn_enemy(self):
+        enemy = EnemyShip()
+        enemy.pos = (randint(0, int(Window.width - enemy.width)), Window.height)
+        self.enemyShips.append(enemy)
+        self.ids.front.add_widget(enemy)
+
+    def game_over(self):
+        self.updateEvent.cancel()
+        # Видалення ворогів
+        for enemy in self.enemyShips[:]:
+            self.enemyShips.remove(enemy)
+            self.ids.front.remove_widget(enemy)
+        # Видалення куль
+        for bullet in self.bullets[:]:
+            self.ids.front.remove_widget(bullet)
+            self.bullets.remove(bullet)
+
+        self.manager.current = 'game_over'
+
+
     def update(self, dt):
-        # Головний корабель
+        # головний корабель
         self.ship.update(self.eventkeys)
 
-        # Логіка вороів
-        for ship in self.enemyShips:
-            ship.update()
+        # вороги - спавн кожні [self.spawn_delay] секунд
+        self.time_last_spawn += dt
+        if self.time_last_spawn >= self.spawn_delay:
+            self.spawn_enemy()
+            self.time_last_spawn = 0
 
-        # Керування кулями
+        # вороги - рух
+        for ship in self.self.enemyShips[:]:
+            ship.update()
+            if ship.top < 0:
+                self.enemyShips.remove(ship)
+                self.ids.front.remove_widget(ship)
+
+            # колізія з гравцем
+            if ship.collide_widget(self.ship):
+                self.game_over()
+
+        # кулі
         self.manage_bullets()
+
 
     # Рух всих куль гри
     def manage_bullets(self):
         for bullet in self.bullets[:]:
             bullet.y += BULLET_SPEED * bullet.direction
-            # Видалення куль при виході за рамки вікна
-            if bullet.y > Window.height or bullet.top < 0:
+            
+            # Перевірка колізії
+            self.check_collisions(bullet)
+            
+            # Перевірка виходу за рамки вікна
+            if bullet.top < 0 or bullet.y > Window.height:
                 self.ids.front.remove_widget(bullet)
                 self.bullets.remove(bullet)
+
+    def check_collisions(self, bullet):
+        if bullet.owner == self.ship:
+            for enemy in self.enemyShips[:]:
+                if bullet.collide_widget(enemy):
+                    self.enemyShips.remove(enemy)
+                    self.ids.front.remove_widget(enemy)
+                    self.bullets.remove(bullet)
+                    break
+        else:
+            if bullet.collide_widget(self.ship):
+                self.game_over()
+                self.remove_bullet(bullet)
+
+
 
     def pressKey(self, key):
         self.eventkeys[key] = True
